@@ -242,7 +242,7 @@ def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
         height=230,
         yaxis=dict(range=[0, 100], ticksuffix="%"),
         xaxis=dict(showgrid=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="right", x=1),
     )
     return fig
 
@@ -340,17 +340,24 @@ with main_col:
             outcome = entry.get("outcome") if entry else ""
 
             with st.container(border=True):
-                row_cols = st.columns([0.7, 1, 1.1, 3, 0.4])
-                row_cols[0].markdown(f"**#{number}**")
+                header_cols = st.columns([6, 1])
+                header_cols[0].markdown(f"**#{number}**")
+                with header_cols[1]:
+                    if st.button("🗑", key=f"delete_{st.session_state.quarter}_{number}"):
+                        delete_possession(active_game, st.session_state.quarter, number)
+                        current_rows = get_rows_for_quarter(st.session_state.quarter)
+                        st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
+                        st.rerun()
 
-                with row_cols[1]:
+                field_cols = st.columns([1, 1, 3])
+                with field_cols[0]:
                     paint_index = None
                     if paint_touch is True:
                         paint_index = 1
                     elif paint_touch is False:
                         paint_index = 0
                     paint_choice = st.radio(
-                        "",
+                        "Paint Touch (0/1)",
                         [0, 1],
                         horizontal=True,
                         index=paint_index,
@@ -363,12 +370,12 @@ with main_col:
                             active_game, st.session_state.quarter, number, {"paint_touch": bool(paint_choice)}
                         )
 
-                with row_cols[2]:
+                with field_cols[1]:
                     points_index = None
                     if points is not None:
                         points_index = POINT_OPTIONS.index(points)
                     points_choice = st.radio(
-                        "",
+                        "Points",
                         POINT_OPTIONS,
                         horizontal=True,
                         index=points_index,
@@ -377,14 +384,14 @@ with main_col:
                     if points_choice is not None and points_choice != points:
                         update_possession(active_game, st.session_state.quarter, number, {"points": points_choice})
 
-                with row_cols[3]:
+                with field_cols[2]:
                     outcome_labels = [item["label"] for item in OUTCOMES]
                     outcome_values = [item["value"] for item in OUTCOMES]
                     outcome_index = None
                     if outcome in outcome_values:
                         outcome_index = outcome_values.index(outcome)
                     outcome_choice = st.radio(
-                        "",
+                        "Outcome",
                         outcome_labels,
                         index=outcome_index,
                         key=f"outcome_{st.session_state.quarter}_{number}",
@@ -395,13 +402,6 @@ with main_col:
                             update_possession(
                                 active_game, st.session_state.quarter, number, {"outcome": selected_value}
                             )
-
-                with row_cols[4]:
-                    if st.button("🗑", key=f"delete_{st.session_state.quarter}_{number}"):
-                        delete_possession(active_game, st.session_state.quarter, number)
-                        current_rows = get_rows_for_quarter(st.session_state.quarter)
-                        st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
-                        st.rerun()
 
         if st.button("Add possession row"):
             current_rows = get_rows_for_quarter(st.session_state.quarter)
@@ -480,7 +480,7 @@ with analytics_col:
             (item["label"], sum(1 for p in quarter_possessions if p.get("outcome") == item["key"]))
             for item in key_outcomes
         ]
-        st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True)
+        st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True, config={"displayModeBar": False})
 
         st.markdown("---")
         st.markdown("**Paint touch performance**")
@@ -505,4 +505,4 @@ with analytics_col:
                     "paint_score_rate": score_rate_q,
                 }
             )
-        st.plotly_chart(build_bar_chart(quarter_stats), use_container_width=True)
+        st.plotly_chart(build_bar_chart(quarter_stats), use_container_width=True, config={"displayModeBar": False})
