@@ -570,7 +570,7 @@ if not analytics_focus:
                                 active_game, st.session_state.quarter, number, {"outcome": selected_value}
                             )
 
-            if st.button("Add possession row"):
+            if st.button("Add possession row", key=f"add_possession_{st.session_state.quarter}"):
                 current_rows = get_rows_for_quarter(st.session_state.quarter)
                 st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
                 st.rerun()
