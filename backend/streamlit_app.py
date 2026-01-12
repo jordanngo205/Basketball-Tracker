@@ -63,6 +63,8 @@ if "quarter" not in st.session_state:
     st.session_state.quarter = 1
 if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = False
+if "pending_delete_game_id" not in st.session_state:
+    st.session_state.pending_delete_game_id = None
 
 
 def get_active_game() -> dict | None:
@@ -252,6 +254,18 @@ def load_games(engine) -> list[dict]:
             )
         return games
 
+
+def delete_game(engine, game_id: str) -> None:
+    with engine.begin() as conn:
+        db_id = conn.execute(
+            text("SELECT id FROM games WHERE client_id = :client_id"),
+            {"client_id": game_id},
+        ).scalar()
+        if db_id is None:
+            return
+        conn.execute(text("DELETE FROM possessions WHERE game_id = :game_id"), {"game_id": db_id})
+        conn.execute(text("DELETE FROM games WHERE id = :game_id"), {"game_id": db_id})
+
 def build_pie_chart(entries: list[tuple[str, int]]) -> go.Figure:
     labels = [label for label, _ in entries]
     values = [count for _, count in entries]
@@ -355,11 +369,28 @@ with st.sidebar:
                 st.session_state.active_game_id = game["id"]
         with col_delete:
             if st.button("Delete", key=f"delete_{game['id']}"):
-                st.session_state.games = [g for g in st.session_state.games if g["id"] != game["id"]]
-                if st.session_state.active_game_id == game["id"]:
-                    st.session_state.active_game_id = (
-                        st.session_state.games[0]["id"] if st.session_state.games else None
-                    )
+                st.session_state.pending_delete_game_id = game["id"]
+        if st.session_state.pending_delete_game_id == game["id"]:
+            st.warning("Delete this game from the database? This cannot be undone.")
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                if st.button("Confirm delete", key=f"confirm_delete_{game['id']}"):
+                    engine = get_engine()
+                    if engine:
+                        try:
+                            delete_game(engine, game["id"])
+                        except SQLAlchemyError as exc:
+                            st.error(f"Failed to delete from database: {exc}")
+                    st.session_state.games = [g for g in st.session_state.games if g["id"] != game["id"]]
+                    if st.session_state.active_game_id == game["id"]:
+                        st.session_state.active_game_id = (
+                            st.session_state.games[0]["id"] if st.session_state.games else None
+                        )
+                    st.session_state.pending_delete_game_id = None
+                    st.rerun()
+            with cancel_col:
+                if st.button("Cancel", key=f"cancel_delete_{game['id']}"):
+                    st.session_state.pending_delete_game_id = None
 
 
 active_game = get_active_game()
