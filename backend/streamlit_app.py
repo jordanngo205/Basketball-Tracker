@@ -322,7 +322,7 @@ with st.sidebar:
     st.markdown("---")
 
     st.subheader("Start a game")
-    game_name = st.text_input("Game name", placeholder="vs Wildcats")
+    game_name = st.text_input("Game name", placeholder="vs ....")
     opponent = st.selectbox("Opponent (OUA)", [""] + TEAMS)
     game_date = st.date_input("Date", value=date.today())
     if st.button("Create game"):
