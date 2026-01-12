@@ -61,6 +61,8 @@ if "rows_by_quarter" not in st.session_state:
     st.session_state.rows_by_quarter = {}
 if "quarter" not in st.session_state:
     st.session_state.quarter = 1
+if "db_loaded" not in st.session_state:
+    st.session_state.db_loaded = False
 
 
 def get_active_game() -> dict | None:
@@ -203,6 +205,53 @@ def sync_game(engine, game: dict) -> int:
             synced += 1
         return synced
 
+
+def load_games(engine) -> list[dict]:
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT id, client_id, name, opponent, game_date
+                FROM games
+                ORDER BY created_at DESC, id DESC
+                """
+            )
+        ).mappings().all()
+        games: list[dict] = []
+        for row in rows:
+            possessions = conn.execute(
+                text(
+                    """
+                    SELECT client_id, number, quarter, paint_touch, points, outcome, timestamp
+                    FROM possessions
+                    WHERE game_id = :game_id
+                    ORDER BY quarter, number
+                    """
+                ),
+                {"game_id": row["id"]},
+            ).mappings().all()
+            games.append(
+                {
+                    "id": row["client_id"],
+                    "name": row["name"],
+                    "opponent": row["opponent"],
+                    "date": row["game_date"],
+                    "possessions": [
+                        {
+                            "id": possession["client_id"],
+                            "number": possession["number"],
+                            "quarter": possession["quarter"],
+                            "paint_touch": possession["paint_touch"],
+                            "points": possession["points"],
+                            "outcome": possession["outcome"],
+                            "timestamp": possession["timestamp"],
+                        }
+                        for possession in possessions
+                    ],
+                }
+            )
+        return games
+
 def build_pie_chart(entries: list[tuple[str, int]]) -> go.Figure:
     labels = [label for label, _ in entries]
     values = [count for _, count in entries]
@@ -245,6 +294,19 @@ def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
         legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="right", x=1),
     )
     return fig
+
+
+if not st.session_state.db_loaded:
+    engine = get_engine()
+    if engine and not st.session_state.games:
+        try:
+            init_db(engine)
+            st.session_state.games = load_games(engine)
+            if st.session_state.games and st.session_state.active_game_id is None:
+                st.session_state.active_game_id = st.session_state.games[0]["id"]
+        except SQLAlchemyError as exc:
+            st.warning(f"Could not load games from database: {exc}")
+    st.session_state.db_loaded = True
 
 
 st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Waterloo Warriors Womens basketball</div>", unsafe_allow_html=True)
