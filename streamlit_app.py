@@ -310,6 +310,74 @@ def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
     return fig
 
 
+def render_analytics(active_game: dict | None) -> None:
+    st.markdown(
+        "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
+        unsafe_allow_html=True,
+    )
+    st.subheader("Quarter snapshot")
+    st.caption("Key outcomes + paint touch performance.")
+
+    if not active_game:
+        st.info("Select a game to see analytics.")
+        return
+
+    quarter_possessions = [
+        p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
+    ]
+    total = len(quarter_possessions)
+    paint_touches = sum(1 for p in quarter_possessions if p.get("paint_touch"))
+    points = sum(p.get("points") or 0 for p in quarter_possessions)
+    paint_rate = round((paint_touches / total) * 100) if total else 0
+    ppp = round(points / total, 2) if total else 0
+    paint_scores = sum(1 for p in quarter_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
+    paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
+
+    stat_cols = st.columns(3)
+    stat_cols[0].metric("Possessions logged", total)
+    stat_cols[1].metric("Paint touch rate", f"{paint_rate}%")
+    stat_cols[2].metric("Points per possession", f"{ppp:.2f}")
+
+    st.markdown("---")
+    st.markdown("**Outcome share (key results)**")
+
+    key_outcomes = [
+        {"label": "Rim Make", "key": "shot_at_rim_make"},
+        {"label": "Kick-out 3 Make", "key": "kick_out_3_make"},
+        {"label": "Foul Drawn", "key": "foul_drawn"},
+    ]
+    outcome_entries = [
+        (item["label"], sum(1 for p in quarter_possessions if p.get("outcome") == item["key"]))
+        for item in key_outcomes
+    ]
+    st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown("---")
+    st.markdown("**Paint touch performance**")
+    perf_cols = st.columns(2)
+    perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
+    perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
+
+    st.markdown("---")
+    st.markdown("**Quarter comparison**")
+    quarter_stats = []
+    for q in [1, 2, 3, 4]:
+        possessions = [p for p in active_game.get("possessions", []) if p.get("quarter") == q]
+        total_q = len(possessions)
+        paint_q = sum(1 for p in possessions if p.get("paint_touch"))
+        paint_scores_q = sum(1 for p in possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
+        paint_rate_q = round((paint_q / total_q) * 100) if total_q else 0
+        score_rate_q = round((paint_scores_q / paint_q) * 100) if paint_q else 0
+        quarter_stats.append(
+            {
+                "quarter": q,
+                "paint_rate": paint_rate_q,
+                "paint_score_rate": score_rate_q,
+            }
+        )
+    st.plotly_chart(build_bar_chart(quarter_stats), use_container_width=True, config={"displayModeBar": False})
+
+
 if not st.session_state.db_loaded:
     engine = get_engine()
     if engine and not st.session_state.games:
@@ -391,27 +459,33 @@ with st.sidebar:
             with cancel_col:
                 if st.button("Cancel", key=f"cancel_delete_{game['id']}"):
                     st.session_state.pending_delete_game_id = None
+    st.markdown("---")
+    analytics_focus = st.toggle("Focus analytics (full width)", value=False)
 
 
 active_game = get_active_game()
-main_col, analytics_col = st.columns([1.7, 1])
+if analytics_focus:
+    render_analytics(active_game)
+else:
+    main_col, analytics_col = st.columns([1.7, 1])
 
-with main_col:
-    if not active_game:
-        st.info("Select a game to start tracking.")
-    else:
-        header_left, header_right = st.columns([3, 1])
-        with header_left:
-            st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Active game</div>", unsafe_allow_html=True)
-            st.subheader(active_game["name"])
-            st.caption(f"{active_game.get('opponent') or 'Opponent TBD'} · {active_game.get('date')}")
-        with header_right:
-            st.session_state.quarter = st.selectbox("Quarter", [1, 2, 3, 4], index=st.session_state.quarter - 1)
-            rows = get_rows_for_quarter(st.session_state.quarter)
-            quarter_possessions = [
-                p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
-            ]
-            st.caption(f"Logged {len(quarter_possessions)}/{rows}")
+if not analytics_focus:
+    with main_col:
+        if not active_game:
+            st.info("Select a game to start tracking.")
+        else:
+            header_left, header_right = st.columns([3, 1])
+            with header_left:
+                st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Active game</div>", unsafe_allow_html=True)
+                st.subheader(active_game["name"])
+                st.caption(f"{active_game.get('opponent') or 'Opponent TBD'} · {active_game.get('date')}")
+            with header_right:
+                st.session_state.quarter = st.selectbox("Quarter", [1, 2, 3, 4], index=st.session_state.quarter - 1)
+                rows = get_rows_for_quarter(st.session_state.quarter)
+                quarter_possessions = [
+                    p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
+                ]
+                st.caption(f"Logged {len(quarter_possessions)}/{rows}")
 
         st.markdown("---")
         header = st.columns([0.7, 1, 1.1, 3, 0.4])
@@ -496,106 +570,46 @@ with main_col:
                                 active_game, st.session_state.quarter, number, {"outcome": selected_value}
                             )
 
-        if st.button("Add possession row"):
-            current_rows = get_rows_for_quarter(st.session_state.quarter)
-            st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
-            st.rerun()
+            if st.button("Add possession row"):
+                current_rows = get_rows_for_quarter(st.session_state.quarter)
+                st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
+                st.rerun()
 
-        if active_game.get("possessions"):
-            export_rows = [
-                [
-                    p.get("number"),
-                    p.get("quarter"),
-                    "yes" if p.get("paint_touch") else "no",
-                    p.get("points") if p.get("points") is not None else "",
-                    p.get("outcome") or "",
+            if active_game.get("possessions"):
+                export_rows = [
+                    [
+                        p.get("number"),
+                        p.get("quarter"),
+                        "yes" if p.get("paint_touch") else "no",
+                        p.get("points") if p.get("points") is not None else "",
+                        p.get("outcome") or "",
+                    ]
+                    for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
                 ]
-                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
-            ]
-            export_df = pd.DataFrame(
-                export_rows,
-                columns=["possession_number", "quarter", "paint_touch", "points", "outcome"],
-            )
-            export_col, sync_col = st.columns([1, 1])
-            with export_col:
-                st.download_button(
-                    "Export CSV",
-                    export_df.to_csv(index=False),
-                    file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
-                    mime="text/csv",
+                export_df = pd.DataFrame(
+                    export_rows,
+                    columns=["possession_number", "quarter", "paint_touch", "points", "outcome"],
                 )
-            with sync_col:
-                if st.button("Sync to DB"):
-                    engine = get_engine()
-                    if not engine:
-                        st.error("DATABASE_URL is not set.")
-                    else:
-                        try:
-                            init_db(engine)
-                            synced = sync_game(engine, active_game)
-                            st.success(f"Synced {synced} possessions.")
-                        except SQLAlchemyError as exc:
-                            st.error(f"Sync failed: {exc}")
+                export_col, sync_col = st.columns([1, 1])
+                with export_col:
+                    st.download_button(
+                        "Export CSV",
+                        export_df.to_csv(index=False),
+                        file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
+                        mime="text/csv",
+                    )
+                with sync_col:
+                    if st.button("Sync to DB"):
+                        engine = get_engine()
+                        if not engine:
+                            st.error("DATABASE_URL is not set.")
+                        else:
+                            try:
+                                init_db(engine)
+                                synced = sync_game(engine, active_game)
+                                st.success(f"Synced {synced} possessions.")
+                            except SQLAlchemyError as exc:
+                                st.error(f"Sync failed: {exc}")
 
-with analytics_col:
-    st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>", unsafe_allow_html=True)
-    st.subheader("Quarter snapshot")
-    st.caption("Key outcomes + paint touch performance.")
-
-    if not active_game:
-        st.info("Select a game to see analytics.")
-    else:
-        quarter_possessions = [
-            p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
-        ]
-        total = len(quarter_possessions)
-        paint_touches = sum(1 for p in quarter_possessions if p.get("paint_touch"))
-        points = sum(p.get("points") or 0 for p in quarter_possessions)
-        paint_rate = round((paint_touches / total) * 100) if total else 0
-        ppp = round(points / total, 2) if total else 0
-        paint_scores = sum(1 for p in quarter_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
-        paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
-
-        stat_cols = st.columns(3)
-        stat_cols[0].metric("Possessions logged", total)
-        stat_cols[1].metric("Paint touch rate", f"{paint_rate}%")
-        stat_cols[2].metric("Points per possession", f"{ppp:.2f}")
-
-        st.markdown("---")
-        st.markdown("**Outcome share (key results)**")
-
-        key_outcomes = [
-            {"label": "Rim Make", "key": "shot_at_rim_make"},
-            {"label": "Kick-out 3 Make", "key": "kick_out_3_make"},
-            {"label": "Foul Drawn", "key": "foul_drawn"},
-        ]
-        outcome_entries = [
-            (item["label"], sum(1 for p in quarter_possessions if p.get("outcome") == item["key"]))
-            for item in key_outcomes
-        ]
-        st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True, config={"displayModeBar": False})
-
-        st.markdown("---")
-        st.markdown("**Paint touch performance**")
-        perf_cols = st.columns(2)
-        perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
-        perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
-
-        st.markdown("---")
-        st.markdown("**Quarter comparison**")
-        quarter_stats = []
-        for q in [1, 2, 3, 4]:
-            possessions = [p for p in active_game.get("possessions", []) if p.get("quarter") == q]
-            total_q = len(possessions)
-            paint_q = sum(1 for p in possessions if p.get("paint_touch"))
-            paint_scores_q = sum(1 for p in possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
-            paint_rate_q = round((paint_q / total_q) * 100) if total_q else 0
-            score_rate_q = round((paint_scores_q / paint_q) * 100) if paint_q else 0
-            quarter_stats.append(
-                {
-                    "quarter": q,
-                    "paint_rate": paint_rate_q,
-                    "paint_score_rate": score_rate_q,
-                }
-            )
-        st.plotly_chart(build_bar_chart(quarter_stats), use_container_width=True, config={"displayModeBar": False})
+    with analytics_col:
+        render_analytics(active_game)
