@@ -310,6 +310,23 @@ def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
     return fig
 
 
+def count_paint_touch_three_make_streaks(possessions: list[dict]) -> int:
+    streak = 0
+    total = 0
+    for possession in possessions:
+        made = possession.get("paint_touch") and (possession.get("points") or 0) > 0
+        if made:
+            streak += 1
+            if streak == 3:
+                total += 1
+            elif streak > 3:
+                # Count every run of 3+ as a single streak.
+                continue
+        else:
+            streak = 0
+    return total
+
+
 def render_analytics(active_game: dict | None, quarter_filter: int | None) -> None:
     st.markdown(
         "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
@@ -332,6 +349,9 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
         analytics_possessions = [
             p for p in active_game.get("possessions", []) if p.get("quarter") == quarter_filter
         ]
+    analytics_possessions = sorted(
+        analytics_possessions, key=lambda x: (x.get("quarter") or 0, x.get("number") or 0)
+    )
     total = len(analytics_possessions)
     paint_touches = sum(1 for p in analytics_possessions if p.get("paint_touch"))
     points = sum(p.get("points") or 0 for p in analytics_possessions)
@@ -341,11 +361,13 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
         1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
     )
     paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
+    paint_touch_3_streaks = count_paint_touch_three_make_streaks(analytics_possessions)
 
-    stat_cols = st.columns(3)
+    stat_cols = st.columns(4)
     stat_cols[0].metric("Possessions logged", total)
     stat_cols[1].metric("Paint touch rate", f"{paint_rate}%")
     stat_cols[2].metric("Points per possession", f"{ppp:.2f}")
+    stat_cols[3].metric("Paint-touch 3 makes in a row", paint_touch_3_streaks)
 
     st.markdown("---")
     st.markdown("**Outcome share (key results)**")
