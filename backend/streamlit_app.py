@@ -570,46 +570,46 @@ if not analytics_focus:
                                 active_game, st.session_state.quarter, number, {"outcome": selected_value}
                             )
 
-            if st.button("Add possession row", key=f"add_possession_{st.session_state.quarter}"):
-                current_rows = get_rows_for_quarter(st.session_state.quarter)
-                st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
-                st.rerun()
+        if st.button("Add possession row", key=f"add_possession_{st.session_state.quarter}"):
+            current_rows = get_rows_for_quarter(st.session_state.quarter)
+            st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
+            st.rerun()
 
-            if active_game.get("possessions"):
-                export_rows = [
-                    [
-                        p.get("number"),
-                        p.get("quarter"),
-                        "yes" if p.get("paint_touch") else "no",
-                        p.get("points") if p.get("points") is not None else "",
-                        p.get("outcome") or "",
-                    ]
-                    for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
+        if active_game.get("possessions"):
+            export_rows = [
+                [
+                    p.get("number"),
+                    p.get("quarter"),
+                    "yes" if p.get("paint_touch") else "no",
+                    p.get("points") if p.get("points") is not None else "",
+                    p.get("outcome") or "",
                 ]
-                export_df = pd.DataFrame(
-                    export_rows,
-                    columns=["possession_number", "quarter", "paint_touch", "points", "outcome"],
+                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
+            ]
+            export_df = pd.DataFrame(
+                export_rows,
+                columns=["possession_number", "quarter", "paint_touch", "points", "outcome"],
+            )
+            export_col, sync_col = st.columns([1, 1])
+            with export_col:
+                st.download_button(
+                    "Export CSV",
+                    export_df.to_csv(index=False),
+                    file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
+                    mime="text/csv",
                 )
-                export_col, sync_col = st.columns([1, 1])
-                with export_col:
-                    st.download_button(
-                        "Export CSV",
-                        export_df.to_csv(index=False),
-                        file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
-                        mime="text/csv",
-                    )
-                with sync_col:
-                    if st.button("Sync to DB"):
-                        engine = get_engine()
-                        if not engine:
-                            st.error("DATABASE_URL is not set.")
-                        else:
-                            try:
-                                init_db(engine)
-                                synced = sync_game(engine, active_game)
-                                st.success(f"Synced {synced} possessions.")
-                            except SQLAlchemyError as exc:
-                                st.error(f"Sync failed: {exc}")
+            with sync_col:
+                if st.button("Sync to DB"):
+                    engine = get_engine()
+                    if not engine:
+                        st.error("DATABASE_URL is not set.")
+                    else:
+                        try:
+                            init_db(engine)
+                            synced = sync_game(engine, active_game)
+                            st.success(f"Synced {synced} possessions.")
+                        except SQLAlchemyError as exc:
+                            st.error(f"Sync failed: {exc}")
 
     with analytics_col:
         render_analytics(active_game)
