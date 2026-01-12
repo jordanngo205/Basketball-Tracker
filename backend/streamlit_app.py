@@ -310,27 +310,36 @@ def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
     return fig
 
 
-def render_analytics(active_game: dict | None) -> None:
+def render_analytics(active_game: dict | None, quarter_filter: int | None) -> None:
     st.markdown(
         "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
         unsafe_allow_html=True,
     )
-    st.subheader("Quarter snapshot")
-    st.caption("Key outcomes + paint touch performance.")
+    if quarter_filter is None:
+        st.subheader("Full game analysis")
+        st.caption("All possessions across the game.")
+    else:
+        st.subheader(f"Quarter {quarter_filter} snapshot")
+        st.caption("Key outcomes + paint touch performance.")
 
     if not active_game:
         st.info("Select a game to see analytics.")
         return
 
-    quarter_possessions = [
-        p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
-    ]
-    total = len(quarter_possessions)
-    paint_touches = sum(1 for p in quarter_possessions if p.get("paint_touch"))
-    points = sum(p.get("points") or 0 for p in quarter_possessions)
+    if quarter_filter is None:
+        analytics_possessions = list(active_game.get("possessions", []))
+    else:
+        analytics_possessions = [
+            p for p in active_game.get("possessions", []) if p.get("quarter") == quarter_filter
+        ]
+    total = len(analytics_possessions)
+    paint_touches = sum(1 for p in analytics_possessions if p.get("paint_touch"))
+    points = sum(p.get("points") or 0 for p in analytics_possessions)
     paint_rate = round((paint_touches / total) * 100) if total else 0
     ppp = round(points / total, 2) if total else 0
-    paint_scores = sum(1 for p in quarter_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
+    paint_scores = sum(
+        1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
+    )
     paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
 
     stat_cols = st.columns(3)
@@ -347,7 +356,7 @@ def render_analytics(active_game: dict | None) -> None:
         {"label": "Foul Drawn", "key": "foul_drawn"},
     ]
     outcome_entries = [
-        (item["label"], sum(1 for p in quarter_possessions if p.get("outcome") == item["key"]))
+        (item["label"], sum(1 for p in analytics_possessions if p.get("outcome") == item["key"]))
         for item in key_outcomes
     ]
     st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True, config={"displayModeBar": False})
@@ -460,12 +469,21 @@ with st.sidebar:
                 if st.button("Cancel", key=f"cancel_delete_{game['id']}"):
                     st.session_state.pending_delete_game_id = None
     st.markdown("---")
-    analytics_focus = st.toggle("Focus analytics (full width)", value=False)
+    analytics_focus = st.toggle("Full game analysis (full width)", value=False)
 
 
 active_game = get_active_game()
 if analytics_focus:
-    render_analytics(active_game)
+    analytics_view = st.selectbox(
+        "Analytics view",
+        ["Full game", "Q1", "Q2", "Q3", "Q4"],
+        index=0,
+        key="analytics_view",
+    )
+    selected_quarter = None
+    if analytics_view != "Full game":
+        selected_quarter = int(analytics_view[1])
+    render_analytics(active_game, selected_quarter)
 else:
     main_col, analytics_col = st.columns([1.7, 1])
 
@@ -612,4 +630,4 @@ if not analytics_focus:
                             st.error(f"Sync failed: {exc}")
 
     with analytics_col:
-        render_analytics(active_game)
+        render_analytics(active_game, st.session_state.quarter)
