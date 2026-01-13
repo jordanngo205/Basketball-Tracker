@@ -92,6 +92,7 @@ def update_possession(game: dict, quarter: int, number: int, updates: dict) -> N
             "paint_touch": False,
             "points": None,
             "outcome": "",
+            "defense": "",
         }
         possessions.append(existing)
     existing.update(updates)
@@ -142,8 +143,17 @@ def init_db(engine) -> None:
                     paint_touch BOOLEAN NOT NULL,
                     points INTEGER,
                     outcome TEXT,
+                    defense TEXT,
                     timestamp TEXT NOT NULL
                 )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE possessions
+                ADD COLUMN IF NOT EXISTS defense TEXT
                 """
             )
         )
@@ -181,15 +191,16 @@ def sync_game(engine, game: dict) -> int:
                 text(
                     """
                     INSERT INTO possessions
-                        (client_id, game_id, number, quarter, paint_touch, points, outcome, timestamp)
+                        (client_id, game_id, number, quarter, paint_touch, points, outcome, defense, timestamp)
                     VALUES
-                        (:client_id, :game_id, :number, :quarter, :paint_touch, :points, :outcome, :timestamp)
+                        (:client_id, :game_id, :number, :quarter, :paint_touch, :points, :outcome, :defense, :timestamp)
                     ON CONFLICT (client_id) DO UPDATE SET
                         number = EXCLUDED.number,
                         quarter = EXCLUDED.quarter,
                         paint_touch = EXCLUDED.paint_touch,
                         points = EXCLUDED.points,
                         outcome = EXCLUDED.outcome,
+                        defense = EXCLUDED.defense,
                         timestamp = EXCLUDED.timestamp
                     """
                 ),
@@ -201,6 +212,7 @@ def sync_game(engine, game: dict) -> int:
                     "paint_touch": possession.get("paint_touch") is True,
                     "points": possession.get("points"),
                     "outcome": possession.get("outcome"),
+                    "defense": possession.get("defense") or "",
                     "timestamp": possession.get("timestamp") or date.today().isoformat(),
                 },
             )
@@ -224,7 +236,7 @@ def load_games(engine) -> list[dict]:
             possessions = conn.execute(
                 text(
                     """
-                    SELECT client_id, number, quarter, paint_touch, points, outcome, timestamp
+                    SELECT client_id, number, quarter, paint_touch, points, outcome, defense, timestamp
                     FROM possessions
                     WHERE game_id = :game_id
                     ORDER BY quarter, number
@@ -246,6 +258,7 @@ def load_games(engine) -> list[dict]:
                             "paint_touch": possession["paint_touch"],
                             "points": possession["points"],
                             "outcome": possession["outcome"],
+                            "defense": possession.get("defense") or "",
                             "timestamp": possession["timestamp"],
                         }
                         for possession in possessions
@@ -327,6 +340,16 @@ def count_paint_touch_three_make_streaks(possessions: list[dict]) -> int:
     return total
 
 
+def defense_breakdown(possessions: list[dict], defense: str) -> dict:
+    filtered = [p for p in possessions if (p.get("defense") or "").lower() == defense]
+    total = len(filtered)
+    paint = sum(1 for p in filtered if p.get("paint_touch"))
+    points = sum(p.get("points") or 0 for p in filtered)
+    paint_rate = round((paint / total) * 100) if total else 0
+    ppp = round(points / total, 2) if total else 0
+    return {"total": total, "paint_rate": paint_rate, "ppp": ppp}
+
+
 def render_analytics(active_game: dict | None, quarter_filter: int | None) -> None:
     st.markdown(
         "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
@@ -388,6 +411,20 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
     perf_cols = st.columns(2)
     perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
     perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
+
+    st.markdown("---")
+    st.markdown("**Defense split**")
+    man_stats = defense_breakdown(analytics_possessions, "man")
+    zone_stats = defense_breakdown(analytics_possessions, "zone")
+    defense_cols = st.columns(2)
+    with defense_cols[0]:
+        st.metric("Man possessions", man_stats["total"])
+        st.metric("Man paint rate", f"{man_stats['paint_rate']}%")
+        st.metric("Man points/poss", f"{man_stats['ppp']:.2f}")
+    with defense_cols[1]:
+        st.metric("Zone possessions", zone_stats["total"])
+        st.metric("Zone paint rate", f"{zone_stats['paint_rate']}%")
+        st.metric("Zone points/poss", f"{zone_stats['ppp']:.2f}")
 
     st.markdown("---")
     st.markdown("**Quarter comparison**")
@@ -528,11 +565,12 @@ if not analytics_focus:
                 st.caption(f"Logged {len(quarter_possessions)}/{rows}")
 
         st.markdown("---")
-        header = st.columns([0.7, 1, 1.1, 3, 0.4])
+        header = st.columns([0.7, 1, 1.1, 1.1, 3, 0.4])
         header[0].markdown("**Poss**")
         header[1].markdown("**Paint Touch (0/1)**")
         header[2].markdown("**Points**")
-        header[3].markdown("**Outcome**")
+        header[3].markdown("**Def**")
+        header[4].markdown("**Outcome**")
 
         rows = get_rows_for_quarter(st.session_state.quarter)
         quarter_possessions = [
@@ -545,6 +583,7 @@ if not analytics_focus:
             paint_touch = entry.get("paint_touch") if entry else None
             points = entry.get("points") if entry else None
             outcome = entry.get("outcome") if entry else ""
+            defense = entry.get("defense") if entry else ""
 
             with st.container(border=True):
                 header_cols = st.columns([6, 1])
@@ -556,7 +595,7 @@ if not analytics_focus:
                         st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
                         st.rerun()
 
-                field_cols = st.columns([1, 1, 3])
+                field_cols = st.columns([1, 1, 1.1, 3])
                 with field_cols[0]:
                     paint_index = None
                     if paint_touch is True:
@@ -592,6 +631,25 @@ if not analytics_focus:
                         update_possession(active_game, st.session_state.quarter, number, {"points": points_choice})
 
                 with field_cols[2]:
+                    defense_options = ["Man", "Zone"]
+                    defense_index = None
+                    if defense and defense.lower() in ("man", "zone"):
+                        defense_index = 0 if defense.lower() == "man" else 1
+                    defense_choice = st.radio(
+                        "Def",
+                        defense_options,
+                        horizontal=True,
+                        index=defense_index,
+                        key=f"defense_{st.session_state.quarter}_{number}",
+                    )
+                    if defense_choice:
+                        defense_value = defense_choice.lower()
+                        if defense_value != (defense or "").lower():
+                            update_possession(
+                                active_game, st.session_state.quarter, number, {"defense": defense_value}
+                            )
+
+                with field_cols[3]:
                     outcome_labels = [item["label"] for item in OUTCOMES]
                     outcome_values = [item["value"] for item in OUTCOMES]
                     outcome_index = None
@@ -616,20 +674,21 @@ if not analytics_focus:
             st.rerun()
 
         if active_game.get("possessions"):
-            export_rows = [
-                [
-                    p.get("number"),
-                    p.get("quarter"),
-                    "yes" if p.get("paint_touch") else "no",
-                    p.get("points") if p.get("points") is not None else "",
-                    p.get("outcome") or "",
+                export_rows = [
+                    [
+                        p.get("number"),
+                        p.get("quarter"),
+                        "yes" if p.get("paint_touch") else "no",
+                        p.get("points") if p.get("points") is not None else "",
+                        p.get("defense") or "",
+                        p.get("outcome") or "",
+                    ]
+                    for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
                 ]
-                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
-            ]
-            export_df = pd.DataFrame(
-                export_rows,
-                columns=["possession_number", "quarter", "paint_touch", "points", "outcome"],
-            )
+                export_df = pd.DataFrame(
+                    export_rows,
+                    columns=["possession_number", "quarter", "paint_touch", "points", "defense", "outcome"],
+                )
             export_col, sync_col = st.columns([1, 1])
             with export_col:
                 st.download_button(
