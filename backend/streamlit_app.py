@@ -708,22 +708,22 @@ if not analytics_focus:
             st.rerun()
 
         if active_game.get("possessions"):
-                export_rows = [
-                    [
-                        p.get("number"),
-                        p.get("quarter"),
-                        "yes" if p.get("paint_touch") else "no",
-                        p.get("points") if p.get("points") is not None else "",
-                        p.get("defense") or "",
-                        p.get("shot_quality") or "",
-                        p.get("outcome") or "",
-                    ]
-                    for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
+            export_rows = [
+                [
+                    p.get("number"),
+                    p.get("quarter"),
+                    "yes" if p.get("paint_touch") else "no",
+                    p.get("points") if p.get("points") is not None else "",
+                    p.get("defense") or "",
+                    p.get("shot_quality") or "",
+                    p.get("outcome") or "",
                 ]
-                export_df = pd.DataFrame(
-                    export_rows,
-                    columns=["possession_number", "quarter", "paint_touch", "points", "defense", "shot_quality", "outcome"],
-                )
+                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
+            ]
+            export_df = pd.DataFrame(
+                export_rows,
+                columns=["possession_number", "quarter", "paint_touch", "points", "defense", "shot_quality", "outcome"],
+            )
             export_col, sync_col = st.columns([1, 1])
             with export_col:
                 st.download_button(
