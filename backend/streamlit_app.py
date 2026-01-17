@@ -580,7 +580,6 @@ if not analytics_focus:
                 st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Active game</div>", unsafe_allow_html=True)
                 st.subheader(active_game["name"])
                 st.caption(f"{active_game.get('opponent') or 'Opponent TBD'} · {active_game.get('date')}")
-                st.caption(f"Tracker: {tracker_label}")
             with header_right:
                 st.session_state.quarter = st.selectbox("Quarter", [1, 2, 3, 4], index=st.session_state.quarter - 1)
                 rows = get_rows_for_quarter(st.session_state.quarter)
