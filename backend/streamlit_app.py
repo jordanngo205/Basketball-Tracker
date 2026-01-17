@@ -337,6 +337,19 @@ def build_pie_chart(entries: list[tuple[str, int]]) -> go.Figure:
     return fig
 
 
+def render_outcome_legend(labels: list[str]) -> None:
+    colors = ["#EAAB00", "#FED34C", "#2f241b"]
+    items = []
+    for label, color in zip(labels, colors, strict=False):
+        items.append(
+            f"<span style='display:inline-flex;align-items:center;margin-right:16px;'>"
+            f"<span style='display:inline-block;width:12px;height:12px;background:{color};"
+            "border-radius:2px;margin-right:6px;'></span>"
+            f"{label}</span>"
+        )
+    st.markdown("".join(items), unsafe_allow_html=True)
+
+
 def build_bar_chart(quarter_stats: list[dict]) -> go.Figure:
     quarters = [f"Q{stat['quarter']}" for stat in quarter_stats]
     paint_rates = [stat["paint_rate"] for stat in quarter_stats]
@@ -421,6 +434,8 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
     ppp = round(points / total, 2) if total else 0
     transition_rate = round((transition_total / total) * 100) if total else 0
     transition_ppp = round(transition_points / transition_total, 2) if transition_total else 0
+    transition_scores = sum(1 for p in transition_possessions if (p.get("points") or 0) > 0)
+    transition_score_rate = round((transition_scores / transition_total) * 100) if transition_total else 0
     paint_scores = sum(
         1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
     )
@@ -446,6 +461,7 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
         for item in key_outcomes
     ]
     st.plotly_chart(build_pie_chart(outcome_entries), use_container_width=True, config={"displayModeBar": False})
+    render_outcome_legend([item["label"] for item in key_outcomes])
 
     st.markdown("---")
     st.markdown("**Paint touch performance**")
@@ -455,9 +471,10 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
 
     st.markdown("---")
     st.markdown("**Transition performance**")
-    trans_cols = st.columns(2)
-    trans_cols[0].metric("Transition rate", f"{transition_rate}%")
-    trans_cols[1].metric("Transition points/poss", f"{transition_ppp:.2f}")
+    trans_cols = st.columns(3)
+    trans_cols[0].metric("Transition possessions", f"{transition_total}/{total}")
+    trans_cols[1].metric("Transition rate", f"{transition_rate}%")
+    trans_cols[2].metric("Score on transitions", f"{transition_score_rate}%")
 
     st.markdown("---")
     st.markdown("**Defense split**")
