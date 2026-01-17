@@ -65,8 +65,6 @@ if "db_loaded" not in st.session_state:
     st.session_state.db_loaded = False
 if "pending_delete_game_id" not in st.session_state:
     st.session_state.pending_delete_game_id = None
-if "active_tracker" not in st.session_state:
-    st.session_state.active_tracker = "paint"
 
 
 def get_active_game() -> dict | None:
@@ -76,20 +74,12 @@ def get_active_game() -> dict | None:
     )
 
 
-def get_tracker_key() -> str:
-    return "possessions" if st.session_state.active_tracker == "paint" else "transition_possessions"
+def get_rows_for_quarter(quarter: int) -> int:
+    return st.session_state.rows_by_quarter.get(str(quarter), DEFAULT_ROWS)
 
 
-def get_tracker_label() -> str:
-    return "Paint touches" if st.session_state.active_tracker == "paint" else "Transition"
-
-
-def get_rows_for_quarter(quarter: int, tracker_key: str) -> int:
-    return st.session_state.rows_by_quarter.get(f"{tracker_key}_{quarter}", DEFAULT_ROWS)
-
-
-def update_possession(game: dict, quarter: int, number: int, updates: dict, tracker_key: str) -> None:
-    possessions = game.setdefault(tracker_key, [])
+def update_possession(game: dict, quarter: int, number: int, updates: dict) -> None:
+    possessions = game.setdefault("possessions", [])
     existing = next(
         (p for p in possessions if p["quarter"] == quarter and p["number"] == number),
         None,
@@ -109,14 +99,14 @@ def update_possession(game: dict, quarter: int, number: int, updates: dict, trac
     existing.update(updates)
 
 
-def delete_possession(game: dict, quarter: int, number: int, tracker_key: str) -> None:
+def delete_possession(game: dict, quarter: int, number: int) -> None:
     possessions = [
-        p for p in game.get(tracker_key, []) if not (p["quarter"] == quarter and p["number"] == number)
+        p for p in game.get("possessions", []) if not (p["quarter"] == quarter and p["number"] == number)
     ]
     for possession in possessions:
         if possession["quarter"] == quarter and possession["number"] > number:
             possession["number"] -= 1
-    game[tracker_key] = possessions
+    game["possessions"] = possessions
 
 
 @st.cache_resource
@@ -215,45 +205,41 @@ def sync_game(engine, game: dict) -> int:
         ).scalar()
 
         synced = 0
-        for tracker_key, tracker_value in [
-            ("possessions", "paint"),
-            ("transition_possessions", "transition"),
-        ]:
-            for possession in game.get(tracker_key, []):
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO possessions
-                            (client_id, game_id, number, quarter, paint_touch, points, outcome, defense, shot_quality, tracker, timestamp)
-                        VALUES
-                            (:client_id, :game_id, :number, :quarter, :paint_touch, :points, :outcome, :defense, :shot_quality, :tracker, :timestamp)
-                        ON CONFLICT (client_id) DO UPDATE SET
-                            number = EXCLUDED.number,
-                            quarter = EXCLUDED.quarter,
-                            paint_touch = EXCLUDED.paint_touch,
-                            points = EXCLUDED.points,
-                            outcome = EXCLUDED.outcome,
-                            defense = EXCLUDED.defense,
-                            shot_quality = EXCLUDED.shot_quality,
-                            tracker = EXCLUDED.tracker,
-                            timestamp = EXCLUDED.timestamp
-                        """
-                    ),
-                    {
-                        "client_id": possession.get("id"),
-                        "game_id": game_id,
-                        "number": possession.get("number"),
-                        "quarter": possession.get("quarter"),
-                        "paint_touch": possession.get("paint_touch") is True,
-                        "points": possession.get("points"),
-                        "outcome": possession.get("outcome"),
-                        "defense": possession.get("defense") or "",
-                        "shot_quality": possession.get("shot_quality") or "",
-                        "tracker": tracker_value,
-                        "timestamp": possession.get("timestamp") or date.today().isoformat(),
-                    },
-                )
-                synced += 1
+        for possession in game.get("possessions", []):
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO possessions
+                        (client_id, game_id, number, quarter, paint_touch, points, outcome, defense, shot_quality, tracker, timestamp)
+                    VALUES
+                        (:client_id, :game_id, :number, :quarter, :paint_touch, :points, :outcome, :defense, :shot_quality, :tracker, :timestamp)
+                    ON CONFLICT (client_id) DO UPDATE SET
+                        number = EXCLUDED.number,
+                        quarter = EXCLUDED.quarter,
+                        paint_touch = EXCLUDED.paint_touch,
+                        points = EXCLUDED.points,
+                        outcome = EXCLUDED.outcome,
+                        defense = EXCLUDED.defense,
+                        shot_quality = EXCLUDED.shot_quality,
+                        tracker = EXCLUDED.tracker,
+                        timestamp = EXCLUDED.timestamp
+                    """
+                ),
+                {
+                    "client_id": possession.get("id"),
+                    "game_id": game_id,
+                    "number": possession.get("number"),
+                    "quarter": possession.get("quarter"),
+                    "paint_touch": possession.get("paint_touch") is True,
+                    "points": possession.get("points"),
+                    "outcome": possession.get("outcome"),
+                    "defense": possession.get("defense") or "",
+                    "shot_quality": possession.get("shot_quality") or "",
+                    "tracker": "paint",
+                    "timestamp": possession.get("timestamp") or date.today().isoformat(),
+                },
+            )
+            synced += 1
         return synced
 
 
@@ -281,11 +267,8 @@ def load_games(engine) -> list[dict]:
                 ),
                 {"game_id": row["id"]},
             ).mappings().all()
-            paint_possessions = []
-            transition_possessions = []
-            for possession in possessions:
-                tracker = (possession.get("tracker") or "paint").lower()
-                payload = {
+            paint_possessions = [
+                {
                     "id": possession["client_id"],
                     "number": possession["number"],
                     "quarter": possession["quarter"],
@@ -296,10 +279,8 @@ def load_games(engine) -> list[dict]:
                     "shot_quality": possession.get("shot_quality") or "",
                     "timestamp": possession["timestamp"],
                 }
-                if tracker == "transition":
-                    transition_possessions.append(payload)
-                else:
-                    paint_possessions.append(payload)
+                for possession in possessions
+            ]
             games.append(
                 {
                     "id": row["client_id"],
@@ -307,7 +288,6 @@ def load_games(engine) -> list[dict]:
                     "opponent": row["opponent"],
                     "date": row["game_date"],
                     "possessions": paint_possessions,
-                    "transition_possessions": transition_possessions,
                 }
             )
         return games
@@ -341,7 +321,8 @@ def build_pie_chart(entries: list[tuple[str, int]]) -> go.Figure:
     fig.update_layout(
         margin=dict(l=0, r=0, t=0, b=0),
         height=230,
-        showlegend=False,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
     )
     return fig
 
@@ -395,28 +376,27 @@ def defense_breakdown(possessions: list[dict], defense: str) -> dict:
     return {"total": total, "paint_rate": paint_rate, "ppp": ppp}
 
 
-def render_analytics(active_game: dict | None, quarter_filter: int | None, tracker_key: str) -> None:
+def render_analytics(active_game: dict | None, quarter_filter: int | None) -> None:
     st.markdown(
         "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
         unsafe_allow_html=True,
     )
-    tracker_label = "Paint touches" if tracker_key == "possessions" else "Transition"
     if quarter_filter is None:
         st.subheader("Full game analysis")
-        st.caption(f"{tracker_label} possessions across the game.")
+        st.caption("Paint touch possessions across the game.")
     else:
         st.subheader(f"Quarter {quarter_filter} snapshot")
-        st.caption(f"{tracker_label} possessions for this quarter.")
+        st.caption("Key outcomes + paint touch performance.")
 
     if not active_game:
         st.info("Select a game to see analytics.")
         return
 
     if quarter_filter is None:
-        analytics_possessions = list(active_game.get(tracker_key, []))
+        analytics_possessions = list(active_game.get("possessions", []))
     else:
         analytics_possessions = [
-            p for p in active_game.get(tracker_key, []) if p.get("quarter") == quarter_filter
+            p for p in active_game.get("possessions", []) if p.get("quarter") == quarter_filter
         ]
     analytics_possessions = sorted(
         analytics_possessions, key=lambda x: (x.get("quarter") or 0, x.get("number") or 0)
@@ -476,7 +456,7 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, track
     st.markdown("**Quarter comparison**")
     quarter_stats = []
     for q in [1, 2, 3, 4]:
-        possessions = [p for p in active_game.get(tracker_key, []) if p.get("quarter") == q]
+        possessions = [p for p in active_game.get("possessions", []) if p.get("quarter") == q]
         total_q = len(possessions)
         paint_q = sum(1 for p in possessions if p.get("paint_touch"))
         paint_scores_q = sum(1 for p in possessions if p.get("paint_touch") and (p.get("points") or 0) > 0)
@@ -513,15 +493,8 @@ st.columns([3, 1])
 
 with st.sidebar:
     st.header("Trackers")
-    tracker_choice = st.radio(
-        "Tracker type",
-        ["Paint touches", "Transition"],
-        index=0 if st.session_state.active_tracker == "paint" else 1,
-        label_visibility="collapsed",
-    )
-    st.session_state.active_tracker = "paint" if tracker_choice == "Paint touches" else "transition"
-    st.markdown(f"**{tracker_choice}**  ")
-    st.caption("Live possession logging")
+    st.markdown("**Paint touches**  ")
+    st.caption("Live paint touch logging")
     st.markdown("---")
 
     st.subheader("Start a game")
@@ -539,7 +512,6 @@ with st.sidebar:
                     "opponent": opponent,
                     "date": game_date.isoformat(),
                     "possessions": [],
-                    "transition_possessions": [],
                 },
             )
             st.session_state.active_game_id = game_id
@@ -548,12 +520,11 @@ with st.sidebar:
     st.subheader("Active games")
     if not st.session_state.games:
         st.caption("No games yet.")
-    tracker_key = get_tracker_key()
     for game in st.session_state.games:
         is_active = game["id"] == st.session_state.active_game_id
         st.markdown(f"**{game['name']}**" + (" (active)" if is_active else ""))
         st.caption(f"{game.get('opponent') or 'No opponent set'} · {game.get('date')}")
-        st.caption(f"{len(game.get(tracker_key, []))} logged")
+        st.caption(f"{len(game.get('possessions', []))} logged")
         col_select, col_delete = st.columns(2)
         with col_select:
             if st.button("Select", key=f"select_{game['id']}"):
@@ -587,8 +558,6 @@ with st.sidebar:
 
 
 active_game = get_active_game()
-tracker_key = get_tracker_key()
-tracker_label = get_tracker_label()
 if analytics_focus:
     analytics_view = st.selectbox(
         "Analytics view",
@@ -599,7 +568,7 @@ if analytics_focus:
     selected_quarter = None
     if analytics_view != "Full game":
         selected_quarter = int(analytics_view[1])
-    render_analytics(active_game, selected_quarter, tracker_key)
+    render_analytics(active_game, selected_quarter)
 else:
     main_col, analytics_col = st.columns([1.7, 1])
 
@@ -613,12 +582,11 @@ if not analytics_focus:
                 st.markdown("<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Active game</div>", unsafe_allow_html=True)
                 st.subheader(active_game["name"])
                 st.caption(f"{active_game.get('opponent') or 'Opponent TBD'} · {active_game.get('date')}")
-                st.caption(f"Tracker: {tracker_label}")
             with header_right:
                 st.session_state.quarter = st.selectbox("Quarter", [1, 2, 3, 4], index=st.session_state.quarter - 1)
-                rows = get_rows_for_quarter(st.session_state.quarter, tracker_key)
+                rows = get_rows_for_quarter(st.session_state.quarter)
                 quarter_possessions = [
-                    p for p in active_game.get(tracker_key, []) if p.get("quarter") == st.session_state.quarter
+                    p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
                 ]
                 st.caption(f"Logged {len(quarter_possessions)}/{rows}")
 
@@ -631,9 +599,9 @@ if not analytics_focus:
         header[4].markdown("**Shot Q**")
         header[5].markdown("**Outcome**")
 
-        rows = get_rows_for_quarter(st.session_state.quarter, tracker_key)
+        rows = get_rows_for_quarter(st.session_state.quarter)
         quarter_possessions = [
-            p for p in active_game.get(tracker_key, []) if p.get("quarter") == st.session_state.quarter
+            p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
         ]
         possession_map = {p["number"]: p for p in quarter_possessions}
 
@@ -650,11 +618,9 @@ if not analytics_focus:
                 header_cols[0].markdown(f"**#{number}**")
                 with header_cols[1]:
                     if st.button("🗑", key=f"delete_{st.session_state.quarter}_{number}"):
-                        delete_possession(active_game, st.session_state.quarter, number, tracker_key)
-                        current_rows = get_rows_for_quarter(st.session_state.quarter, tracker_key)
-                        st.session_state.rows_by_quarter[f"{tracker_key}_{st.session_state.quarter}"] = max(
-                            1, current_rows - 1
-                        )
+                        delete_possession(active_game, st.session_state.quarter, number)
+                        current_rows = get_rows_for_quarter(st.session_state.quarter)
+                        st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
                         st.rerun()
 
                 field_cols = st.columns([1, 1, 1.1, 1.2, 3])
@@ -679,7 +645,6 @@ if not analytics_focus:
                             st.session_state.quarter,
                             number,
                             {"paint_touch": bool(paint_choice)},
-                            tracker_key,
                         )
 
                 with field_cols[1]:
@@ -699,7 +664,6 @@ if not analytics_focus:
                             st.session_state.quarter,
                             number,
                             {"points": points_choice},
-                            tracker_key,
                         )
 
                 with field_cols[2]:
@@ -722,7 +686,6 @@ if not analytics_focus:
                                 st.session_state.quarter,
                                 number,
                                 {"defense": defense_value},
-                                tracker_key,
                             )
 
                 with field_cols[3]:
@@ -745,7 +708,6 @@ if not analytics_focus:
                                 st.session_state.quarter,
                                 number,
                                 {"shot_quality": shot_value},
-                                tracker_key,
                             )
 
                 with field_cols[4]:
@@ -769,15 +731,14 @@ if not analytics_focus:
                                 st.session_state.quarter,
                                 number,
                                 {"outcome": selected_value},
-                                tracker_key,
                             )
 
         if st.button("Add possession row", key=f"add_possession_{st.session_state.quarter}"):
-            current_rows = get_rows_for_quarter(st.session_state.quarter, tracker_key)
-            st.session_state.rows_by_quarter[f"{tracker_key}_{st.session_state.quarter}"] = current_rows + 1
+            current_rows = get_rows_for_quarter(st.session_state.quarter)
+            st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
             st.rerun()
 
-        if active_game.get(tracker_key):
+        if active_game.get("possessions"):
             export_rows = [
                 [
                     p.get("number"),
@@ -788,7 +749,7 @@ if not analytics_focus:
                     p.get("shot_quality") or "",
                     p.get("outcome") or "",
                 ]
-                for p in sorted(active_game.get(tracker_key, []), key=lambda x: (x["quarter"], x["number"]))
+                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
             ]
             export_df = pd.DataFrame(
                 export_rows,
@@ -816,4 +777,4 @@ if not analytics_focus:
                             st.error(f"Sync failed: {exc}")
 
     with analytics_col:
-        render_analytics(active_game, st.session_state.quarter, tracker_key)
+        render_analytics(active_game, st.session_state.quarter)
