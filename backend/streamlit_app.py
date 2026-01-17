@@ -470,10 +470,11 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
 
     st.markdown("---")
     st.markdown("**Paint touch performance**")
-    perf_cols = st.columns(3)
+    perf_cols = st.columns(4)
     perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
     perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
     perf_cols[2].metric("Score on non-paint touches", f"{non_paint_score_rate}%")
+    perf_cols[3].metric("Non-paint touch scores", f"{non_paint_scores}/{non_paint_total}")
 
     st.markdown("---")
     st.markdown("**Transition performance**")
