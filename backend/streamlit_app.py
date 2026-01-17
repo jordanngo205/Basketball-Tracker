@@ -440,6 +440,11 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
         1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
     )
     paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
+    non_paint_total = total - paint_touches
+    non_paint_scores = sum(
+        1 for p in analytics_possessions if not p.get("paint_touch") and (p.get("points") or 0) > 0
+    )
+    non_paint_score_rate = round((non_paint_scores / non_paint_total) * 100) if non_paint_total else 0
     paint_touch_3_streaks = count_paint_touch_three_make_streaks(analytics_possessions)
 
     stat_cols = st.columns(4)
@@ -465,9 +470,10 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
 
     st.markdown("---")
     st.markdown("**Paint touch performance**")
-    perf_cols = st.columns(2)
+    perf_cols = st.columns(3)
     perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
     perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
+    perf_cols[2].metric("Score on non-paint touches", f"{non_paint_score_rate}%")
 
     st.markdown("---")
     st.markdown("**Transition performance**")
