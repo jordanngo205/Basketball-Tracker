@@ -90,6 +90,7 @@ def update_possession(game: dict, quarter: int, number: int, updates: dict) -> N
             "quarter": quarter,
             "number": number,
             "paint_touch": False,
+            "transition": False,
             "points": None,
             "outcome": "",
             "defense": "",
@@ -142,6 +143,7 @@ def init_db(engine) -> None:
                     number INTEGER NOT NULL,
                     quarter INTEGER NOT NULL,
                     paint_touch BOOLEAN NOT NULL,
+                    transition BOOLEAN NOT NULL,
                     points INTEGER,
                     outcome TEXT,
                     defense TEXT,
@@ -165,6 +167,14 @@ def init_db(engine) -> None:
                 """
                 ALTER TABLE possessions
                 ADD COLUMN IF NOT EXISTS shot_quality TEXT
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE possessions
+                ADD COLUMN IF NOT EXISTS transition BOOLEAN
                 """
             )
         )
@@ -212,9 +222,9 @@ def sync_game(engine, game: dict) -> int:
                 text(
                     """
                     INSERT INTO possessions
-                        (client_id, game_id, number, quarter, paint_touch, points, outcome, defense, shot_quality, tracker, timestamp)
+                        (client_id, game_id, number, quarter, paint_touch, transition, points, outcome, defense, shot_quality, tracker, timestamp)
                     VALUES
-                        (:client_id, :game_id, :number, :quarter, :paint_touch, :points, :outcome, :defense, :shot_quality, :tracker, :timestamp)
+                        (:client_id, :game_id, :number, :quarter, :paint_touch, :transition, :points, :outcome, :defense, :shot_quality, :tracker, :timestamp)
                     """
                 ),
                 {
@@ -223,6 +233,7 @@ def sync_game(engine, game: dict) -> int:
                     "number": possession.get("number"),
                     "quarter": possession.get("quarter"),
                     "paint_touch": possession.get("paint_touch") is True,
+                    "transition": possession.get("transition") is True,
                     "points": possession.get("points"),
                     "outcome": possession.get("outcome"),
                     "defense": possession.get("defense") or "",
@@ -273,6 +284,7 @@ def load_games(engine) -> list[dict]:
                     "number": number,
                     "quarter": quarter,
                     "paint_touch": possession["paint_touch"],
+                    "transition": possession.get("transition") is True,
                     "points": possession["points"],
                     "outcome": possession["outcome"],
                     "defense": possession.get("defense") or "",
@@ -401,9 +413,14 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
     )
     total = len(analytics_possessions)
     paint_touches = sum(1 for p in analytics_possessions if p.get("paint_touch"))
+    transition_possessions = [p for p in analytics_possessions if p.get("transition")]
+    transition_total = len(transition_possessions)
     points = sum(p.get("points") or 0 for p in analytics_possessions)
+    transition_points = sum(p.get("points") or 0 for p in transition_possessions)
     paint_rate = round((paint_touches / total) * 100) if total else 0
     ppp = round(points / total, 2) if total else 0
+    transition_rate = round((transition_total / total) * 100) if total else 0
+    transition_ppp = round(transition_points / transition_total, 2) if transition_total else 0
     paint_scores = sum(
         1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
     )
@@ -435,6 +452,12 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
     perf_cols = st.columns(2)
     perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
     perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
+
+    st.markdown("---")
+    st.markdown("**Transition performance**")
+    trans_cols = st.columns(2)
+    trans_cols[0].metric("Transition rate", f"{transition_rate}%")
+    trans_cols[1].metric("Transition points/poss", f"{transition_ppp:.2f}")
 
     st.markdown("---")
     st.markdown("**Defense split**")
@@ -589,13 +612,14 @@ if not analytics_focus:
                 st.caption(f"Logged {len(quarter_possessions)}/{rows}")
 
         st.markdown("---")
-        header = st.columns([0.7, 1, 1.1, 1.1, 1.2, 3, 0.4])
+        header = st.columns([0.7, 1, 1, 1.1, 1.1, 1.2, 3, 0.4])
         header[0].markdown("**Poss**")
         header[1].markdown("**Paint Touch (0/1)**")
-        header[2].markdown("**Points**")
-        header[3].markdown("**Def**")
-        header[4].markdown("**Shot Q**")
-        header[5].markdown("**Outcome**")
+        header[2].markdown("**Trans (0/1)**")
+        header[3].markdown("**Points**")
+        header[4].markdown("**Def**")
+        header[5].markdown("**Shot Q**")
+        header[6].markdown("**Outcome**")
 
         rows = get_rows_for_quarter(st.session_state.quarter)
         quarter_possessions = [
@@ -606,6 +630,7 @@ if not analytics_focus:
         for number in range(1, rows + 1):
             entry = possession_map.get(number)
             paint_touch = entry.get("paint_touch") if entry else None
+            transition = entry.get("transition") if entry else None
             points = entry.get("points") if entry else None
             outcome = entry.get("outcome") if entry else ""
             defense = entry.get("defense") if entry else ""
@@ -621,7 +646,7 @@ if not analytics_focus:
                         st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
                         st.rerun()
 
-                field_cols = st.columns([1, 1, 1.1, 1.2, 3])
+                field_cols = st.columns([1, 1, 1, 1.1, 1.2, 3])
                 with field_cols[0]:
                     paint_index = None
                     if paint_touch is True:
@@ -646,6 +671,29 @@ if not analytics_focus:
                         )
 
                 with field_cols[1]:
+                    transition_index = None
+                    if transition is True:
+                        transition_index = 1
+                    elif transition is False:
+                        transition_index = 0
+                    transition_choice = st.radio(
+                        "Trans (0/1)",
+                        [0, 1],
+                        horizontal=True,
+                        index=transition_index,
+                        key=f"transition_{st.session_state.quarter}_{number}",
+                    )
+                    if transition_choice is not None and transition_choice != (
+                        1 if transition else 0 if transition is False else None
+                    ):
+                        update_possession(
+                            active_game,
+                            st.session_state.quarter,
+                            number,
+                            {"transition": bool(transition_choice)},
+                        )
+
+                with field_cols[2]:
                     points_index = None
                     if points is not None:
                         points_index = POINT_OPTIONS.index(points)
@@ -664,7 +712,7 @@ if not analytics_focus:
                             {"points": points_choice},
                         )
 
-                with field_cols[2]:
+                with field_cols[3]:
                     defense_options = ["Man", "Zone"]
                     defense_index = None
                     if defense and defense.lower() in ("man", "zone"):
@@ -686,7 +734,7 @@ if not analytics_focus:
                                 {"defense": defense_value},
                             )
 
-                with field_cols[3]:
+                with field_cols[4]:
                     shot_options = ["Good", "Bad"]
                     shot_index = None
                     if shot_quality and shot_quality.lower() in ("good", "bad"):
@@ -708,7 +756,7 @@ if not analytics_focus:
                                 {"shot_quality": shot_value},
                             )
 
-                with field_cols[4]:
+                with field_cols[5]:
                     outcome_labels = [item["label"] for item in OUTCOMES]
                     outcome_values = [item["value"] for item in OUTCOMES]
                     outcome_index = None
@@ -742,6 +790,7 @@ if not analytics_focus:
                     p.get("number"),
                     p.get("quarter"),
                     "yes" if p.get("paint_touch") else "no",
+                    "yes" if p.get("transition") else "no",
                     p.get("points") if p.get("points") is not None else "",
                     p.get("defense") or "",
                     p.get("shot_quality") or "",
@@ -751,7 +800,16 @@ if not analytics_focus:
             ]
             export_df = pd.DataFrame(
                 export_rows,
-                columns=["possession_number", "quarter", "paint_touch", "points", "defense", "shot_quality", "outcome"],
+                columns=[
+                    "possession_number",
+                    "quarter",
+                    "paint_touch",
+                    "transition",
+                    "points",
+                    "defense",
+                    "shot_quality",
+                    "outcome",
+                ],
             )
             export_col, sync_col = st.columns([1, 1])
             with export_col:
