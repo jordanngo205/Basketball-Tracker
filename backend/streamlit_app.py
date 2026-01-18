@@ -262,7 +262,7 @@ def load_games(engine) -> list[dict]:
             possessions = conn.execute(
                 text(
                     """
-                    SELECT client_id, number, quarter, paint_touch, points, outcome, defense, shot_quality, tracker, timestamp
+                    SELECT client_id, number, quarter, paint_touch, transition, points, outcome, defense, shot_quality, tracker, timestamp
                     FROM possessions
                     WHERE game_id = :game_id
                       AND (tracker IS NULL OR tracker = '' OR tracker = 'paint')
