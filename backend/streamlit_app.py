@@ -399,12 +399,15 @@ def defense_breakdown(possessions: list[dict], defense: str) -> dict:
     return {"total": total, "paint_rate": paint_rate, "ppp": ppp}
 
 
-def render_analytics(active_game: dict | None, quarter_filter: int | None) -> None:
+def render_analytics(active_game: dict | None, quarter_filter: int | None, half_filter: int | None) -> None:
     st.markdown(
         "<div style='letter-spacing:0.3em;text-transform:uppercase;font-size:11px;color:#5d4936;'>Analytics</div>",
         unsafe_allow_html=True,
     )
-    if quarter_filter is None:
+    if half_filter in (1, 2):
+        st.subheader(f"{'First' if half_filter == 1 else 'Second'} half analysis")
+        st.caption("Paint touch possessions for this half.")
+    elif quarter_filter is None:
         st.subheader("Full game analysis")
         st.caption("Paint touch possessions across the game.")
     else:
@@ -415,7 +418,15 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None) -> No
         st.info("Select a game to see analytics.")
         return
 
-    if quarter_filter is None:
+    if half_filter == 1:
+        analytics_possessions = [
+            p for p in active_game.get("possessions", []) if p.get("quarter") in (1, 2)
+        ]
+    elif half_filter == 2:
+        analytics_possessions = [
+            p for p in active_game.get("possessions", []) if p.get("quarter") in (3, 4)
+        ]
+    elif quarter_filter is None:
         analytics_possessions = list(active_game.get("possessions", []))
     else:
         analytics_possessions = [
@@ -606,14 +617,19 @@ active_game = get_active_game()
 if analytics_focus:
     analytics_view = st.selectbox(
         "Analytics view",
-        ["Full game", "Q1", "Q2", "Q3", "Q4"],
+        ["Full game", "First half", "Second half", "Q1", "Q2", "Q3", "Q4"],
         index=0,
         key="analytics_view",
     )
     selected_quarter = None
-    if analytics_view != "Full game":
+    selected_half = None
+    if analytics_view == "First half":
+        selected_half = 1
+    elif analytics_view == "Second half":
+        selected_half = 2
+    elif analytics_view != "Full game":
         selected_quarter = int(analytics_view[1])
-    render_analytics(active_game, selected_quarter)
+    render_analytics(active_game, selected_quarter, selected_half)
 else:
     main_col, analytics_col = st.columns([1.7, 1])
 
@@ -857,4 +873,4 @@ if not analytics_focus:
                             st.error(f"Sync failed: {exc}")
 
     with analytics_col:
-        render_analytics(active_game, st.session_state.quarter)
+        render_analytics(active_game, st.session_state.quarter, None)
