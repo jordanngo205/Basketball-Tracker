@@ -439,6 +439,8 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
     paint_touches = sum(1 for p in analytics_possessions if p.get("paint_touch"))
     transition_possessions = [p for p in analytics_possessions if p.get("transition")]
     transition_total = len(transition_possessions)
+    paint_touch_possessions = [p for p in analytics_possessions if p.get("paint_touch")]
+    non_paint_possessions = [p for p in analytics_possessions if not p.get("paint_touch")]
     points = sum(p.get("points") or 0 for p in analytics_possessions)
     paint_points = sum(p.get("points") or 0 for p in paint_touch_possessions)
     non_paint_points = sum(p.get("points") or 0 for p in non_paint_possessions)
@@ -449,8 +451,6 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
     transition_ppp = round(transition_points / transition_total, 2) if transition_total else 0
     transition_scores = sum(1 for p in transition_possessions if (p.get("points") or 0) > 0)
     transition_score_rate = round((transition_scores / transition_total) * 100) if transition_total else 0
-    paint_touch_possessions = [p for p in analytics_possessions if p.get("paint_touch")]
-    non_paint_possessions = [p for p in analytics_possessions if not p.get("paint_touch")]
     paint_scores = sum(1 for p in paint_touch_possessions if (p.get("points") or 0) > 0)
     paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
     non_paint_total = total - paint_touches
