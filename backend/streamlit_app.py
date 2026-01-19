@@ -503,8 +503,10 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
         if p.get("outcome") in ("kick_out_3_make", "kick_out_3_miss")
     )
     paint_outcome_cols[1].metric("Kick-out 3 makes (paint)", f"{kick_make}/{kick_attempts}")
-    foul_drawn = sum(1 for p in paint_touch_possessions if p.get("outcome") == "foul_drawn")
-    paint_outcome_cols[2].metric("Fouls drawn (paint)", f"{foul_drawn}/{paint_touches}")
+    foul_points = sum(
+        p.get("points") or 0 for p in paint_touch_possessions if p.get("outcome") == "foul_drawn"
+    )
+    paint_outcome_cols[2].metric("Foul points (paint)", foul_points)
 
     st.markdown("---")
     st.markdown("**Non-paint touch performance**")
@@ -529,8 +531,10 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
         if p.get("outcome") in ("kick_out_3_make", "kick_out_3_miss")
     )
     non_paint_outcome_cols[1].metric("Kick-out 3 makes (non-paint)", f"{np_kick_make}/{np_kick_attempts}")
-    np_foul = sum(1 for p in non_paint_possessions if p.get("outcome") == "foul_drawn")
-    non_paint_outcome_cols[2].metric("Fouls drawn (non-paint)", f"{np_foul}/{non_paint_total}")
+    np_foul_points = sum(
+        p.get("points") or 0 for p in non_paint_possessions if p.get("outcome") == "foul_drawn"
+    )
+    non_paint_outcome_cols[2].metric("Foul points (non-paint)", np_foul_points)
 
     st.markdown("---")
     st.markdown("**Transition performance**")
