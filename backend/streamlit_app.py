@@ -447,14 +447,12 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
     transition_ppp = round(transition_points / transition_total, 2) if transition_total else 0
     transition_scores = sum(1 for p in transition_possessions if (p.get("points") or 0) > 0)
     transition_score_rate = round((transition_scores / transition_total) * 100) if transition_total else 0
-    paint_scores = sum(
-        1 for p in analytics_possessions if p.get("paint_touch") and (p.get("points") or 0) > 0
-    )
+    paint_touch_possessions = [p for p in analytics_possessions if p.get("paint_touch")]
+    non_paint_possessions = [p for p in analytics_possessions if not p.get("paint_touch")]
+    paint_scores = sum(1 for p in paint_touch_possessions if (p.get("points") or 0) > 0)
     paint_score_rate = round((paint_scores / paint_touches) * 100) if paint_touches else 0
     non_paint_total = total - paint_touches
-    non_paint_scores = sum(
-        1 for p in analytics_possessions if not p.get("paint_touch") and (p.get("points") or 0) > 0
-    )
+    non_paint_scores = sum(1 for p in non_paint_possessions if (p.get("points") or 0) > 0)
     non_paint_score_rate = round((non_paint_scores / non_paint_total) * 100) if non_paint_total else 0
     paint_touch_3_streaks = count_paint_touch_three_make_streaks(analytics_possessions)
 
@@ -481,11 +479,27 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
 
     st.markdown("---")
     st.markdown("**Paint touch performance**")
-    perf_cols = st.columns(4)
-    perf_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
-    perf_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
-    perf_cols[2].metric("Score on non-paint touches", f"{non_paint_score_rate}%")
-    perf_cols[3].metric("Non-paint touch scores", f"{non_paint_scores}/{non_paint_total}")
+    paint_cols = st.columns(3)
+    paint_cols[0].metric("Score on paint touches", f"{paint_score_rate}%")
+    paint_cols[1].metric("Paint touch scores", f"{paint_scores}/{paint_touches}")
+    paint_cols[2].metric("Paint touch possessions", f"{paint_touches}/{total}")
+
+    paint_outcomes = {
+        "Rim make": "shot_at_rim_make",
+        "Kick-out 3 make": "kick_out_3_make",
+        "Foul drawn": "foul_drawn",
+    }
+    outcome_cols = st.columns(3)
+    for col, (label, key) in zip(outcome_cols, paint_outcomes.items(), strict=False):
+        count = sum(1 for p in paint_touch_possessions if p.get("outcome") == key)
+        pct = round((count / paint_touches) * 100) if paint_touches else 0
+        col.metric(f"{label} (paint)", f"{count} ({pct}%)")
+
+    st.markdown("---")
+    st.markdown("**Non-paint touch performance**")
+    non_paint_cols = st.columns(2)
+    non_paint_cols[0].metric("Score on non-paint touches", f"{non_paint_score_rate}%")
+    non_paint_cols[1].metric("Non-paint touch scores", f"{non_paint_scores}/{non_paint_total}")
 
     st.markdown("---")
     st.markdown("**Transition performance**")
