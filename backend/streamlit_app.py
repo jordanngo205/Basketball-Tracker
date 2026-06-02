@@ -315,6 +315,7 @@ def delete_game(engine, game_id: str) -> None:
         conn.execute(text("DELETE FROM possessions WHERE game_id = :game_id"), {"game_id": db_id})
         conn.execute(text("DELETE FROM games WHERE id = :game_id"), {"game_id": db_id})
 
+
 def build_pie_chart(entries: list[tuple[str, int]]) -> go.Figure:
     labels = [label for label, _ in entries]
     values = [count for _, count in entries]
@@ -448,7 +449,6 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
     paint_rate = round((paint_touches / total) * 100) if total else 0
     ppp = round(points / total, 2) if total else 0
     transition_rate = round((transition_total / total) * 100) if total else 0
-    transition_ppp = round(transition_points / transition_total, 2) if transition_total else 0
     transition_scores = sum(1 for p in transition_possessions if (p.get("points") or 0) > 0)
     transition_score_rate = round((transition_scores / transition_total) * 100) if transition_total else 0
     paint_scores = sum(1 for p in paint_touch_possessions if (p.get("points") or 0) > 0)
