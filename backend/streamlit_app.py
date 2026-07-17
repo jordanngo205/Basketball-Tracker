@@ -578,6 +578,194 @@ def render_analytics(active_game: dict | None, quarter_filter: int | None, half_
     st.plotly_chart(build_bar_chart(quarter_stats), use_container_width=True, config={"displayModeBar": False})
 
 
+def render_possession_grid():
+    active_game = get_active_game()
+    if not active_game:
+        return
+    quarter = st.session_state.quarter
+
+    st.markdown("---")
+    header = st.columns([0.7, 1, 1, 1.1, 1.1, 1.2, 3, 0.4])
+    header[0].markdown("**Poss**")
+    header[1].markdown("**Paint Touch**")
+    header[2].markdown("**Trans**")
+    header[3].markdown("**Points**")
+    header[4].markdown("**Def**")
+    header[5].markdown("**Shot Q**")
+    header[6].markdown("**Outcome**")
+
+    rows = get_rows_for_quarter(quarter)
+    quarter_possessions = [
+        p for p in active_game.get("possessions", []) if p.get("quarter") == quarter
+    ]
+    possession_map = {p["number"]: p for p in quarter_possessions}
+
+    for number in range(1, rows + 1):
+        entry = possession_map.get(number)
+        paint_touch = entry.get("paint_touch") if entry else None
+        transition = entry.get("transition") if entry else None
+        points = entry.get("points") if entry else None
+        outcome = entry.get("outcome") if entry else ""
+        defense = entry.get("defense") if entry else ""
+        shot_quality = entry.get("shot_quality") if entry else ""
+
+        with st.container(border=True):
+            header_cols = st.columns([6, 1])
+            header_cols[0].markdown(f"**#{number}**")
+            with header_cols[1]:
+                if st.button("🗑", key=f"delete_{quarter}_{number}"):
+                    delete_possession(active_game, quarter, number)
+                    current_rows = get_rows_for_quarter(quarter)
+                    st.session_state.rows_by_quarter[str(quarter)] = max(1, current_rows - 1)
+                    st.rerun()
+
+            field_cols = st.columns([1, 1, 1, 1.1, 1.2, 3])
+            with field_cols[0]:
+                paint_index = None
+                if paint_touch is True:
+                    paint_index = 1
+                elif paint_touch is False:
+                    paint_index = 0
+                paint_choice = st.radio(
+                    "Paint Touch",
+                    [0, 1],
+                    horizontal=True,
+                    index=paint_index,
+                    key=f"paint_{quarter}_{number}",
+                )
+                if paint_choice is not None and paint_choice != (
+                    1 if paint_touch else 0 if paint_touch is False else None
+                ):
+                    update_possession(active_game, quarter, number, {"paint_touch": bool(paint_choice)})
+
+            with field_cols[1]:
+                transition_index = None
+                if transition is True:
+                    transition_index = 1
+                elif transition is False:
+                    transition_index = 0
+                transition_choice = st.radio(
+                    "Trans",
+                    [0, 1],
+                    horizontal=True,
+                    index=transition_index,
+                    key=f"transition_{quarter}_{number}",
+                )
+                if transition_choice is not None and transition_choice != (
+                    1 if transition else 0 if transition is False else None
+                ):
+                    update_possession(active_game, quarter, number, {"transition": bool(transition_choice)})
+
+            with field_cols[2]:
+                points_index = None
+                if points is not None:
+                    points_index = POINT_OPTIONS.index(points)
+                points_choice = st.radio(
+                    "Points",
+                    POINT_OPTIONS,
+                    horizontal=True,
+                    index=points_index,
+                    key=f"points_{quarter}_{number}",
+                )
+                if points_choice is not None and points_choice != points:
+                    update_possession(active_game, quarter, number, {"points": points_choice})
+
+            with field_cols[3]:
+                defense_options = ["Man", "Zone"]
+                defense_index = None
+                if defense and defense.lower() in ("man", "zone"):
+                    defense_index = 0 if defense.lower() == "man" else 1
+                defense_choice = st.radio(
+                    "Def",
+                    defense_options,
+                    horizontal=True,
+                    index=defense_index,
+                    key=f"defense_{quarter}_{number}",
+                )
+                if defense_choice:
+                    defense_value = defense_choice.lower()
+                    if defense_value != (defense or "").lower():
+                        update_possession(active_game, quarter, number, {"defense": defense_value})
+
+            with field_cols[4]:
+                shot_options = ["Good", "Bad"]
+                shot_index = None
+                if shot_quality and shot_quality.lower() in ("good", "bad"):
+                    shot_index = 0 if shot_quality.lower() == "good" else 1
+                shot_choice = st.radio(
+                    "Shot Q",
+                    shot_options,
+                    horizontal=True,
+                    index=shot_index,
+                    key=f"shot_quality_{quarter}_{number}",
+                )
+                if shot_choice:
+                    shot_value = shot_choice.lower()
+                    if shot_value != (shot_quality or "").lower():
+                        update_possession(active_game, quarter, number, {"shot_quality": shot_value})
+
+            with field_cols[5]:
+                outcome_labels = [item["label"] for item in OUTCOMES]
+                outcome_values = [item["value"] for item in OUTCOMES]
+                outcome_index = None
+                if outcome in outcome_values:
+                    outcome_index = outcome_values.index(outcome)
+                outcome_choice = st.radio(
+                    "Outcome",
+                    outcome_labels,
+                    horizontal=True,
+                    index=outcome_index,
+                    key=f"outcome_{quarter}_{number}",
+                )
+                if outcome_choice and outcome_choice != "":
+                    selected_value = OUTCOMES[outcome_labels.index(outcome_choice)]["value"]
+                    if selected_value != outcome:
+                        update_possession(active_game, quarter, number, {"outcome": selected_value})
+
+    if st.button("Add possession row", key=f"add_possession_{quarter}"):
+        current_rows = get_rows_for_quarter(quarter)
+        st.session_state.rows_by_quarter[str(quarter)] = current_rows + 1
+        st.rerun()
+
+    export_rows = [
+        [
+            p.get("number"),
+            p.get("quarter"),
+            "yes" if p.get("paint_touch") else "no",
+            "yes" if p.get("transition") else "no",
+            p.get("points") if p.get("points") is not None else "",
+            p.get("defense") or "",
+            p.get("shot_quality") or "",
+            p.get("outcome") or "",
+        ]
+        for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
+    ]
+    export_df = pd.DataFrame(
+        export_rows,
+        columns=["possession_number", "quarter", "paint_touch", "transition", "points", "defense", "shot_quality", "outcome"],
+    )
+    export_col, sync_col = st.columns([1, 1])
+    with export_col:
+        st.download_button(
+            "Export CSV",
+            export_df.to_csv(index=False),
+            file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
+            mime="text/csv",
+        )
+    with sync_col:
+        if st.button("Sync to DB"):
+            engine = get_engine()
+            if not engine:
+                st.error("DATABASE_URL is not set.")
+            else:
+                try:
+                    init_db(engine)
+                    synced = sync_game(engine, active_game)
+                    st.success(f"Synced {synced} possessions.")
+                except SQLAlchemyError as exc:
+                    st.error(f"Sync failed: {exc}")
+
+
 if not st.session_state.db_loaded:
     engine = get_engine()
     if engine and not st.session_state.games:
@@ -701,226 +889,8 @@ if not analytics_focus:
                 ]
                 st.caption(f"Logged {len(quarter_possessions)}/{rows}")
 
-        st.markdown("---")
-        header = st.columns([0.7, 1, 1, 1.1, 1.1, 1.2, 3, 0.4])
-        header[0].markdown("**Poss**")
-        header[1].markdown("**Paint Touch (0/1)**")
-        header[2].markdown("**Trans (0/1)**")
-        header[3].markdown("**Points**")
-        header[4].markdown("**Def**")
-        header[5].markdown("**Shot Q**")
-        header[6].markdown("**Outcome**")
 
-        rows = get_rows_for_quarter(st.session_state.quarter)
-        quarter_possessions = [
-            p for p in active_game.get("possessions", []) if p.get("quarter") == st.session_state.quarter
-        ]
-        possession_map = {p["number"]: p for p in quarter_possessions}
-
-        for number in range(1, rows + 1):
-            entry = possession_map.get(number)
-            paint_touch = entry.get("paint_touch") if entry else None
-            transition = entry.get("transition") if entry else None
-            points = entry.get("points") if entry else None
-            outcome = entry.get("outcome") if entry else ""
-            defense = entry.get("defense") if entry else ""
-            shot_quality = entry.get("shot_quality") if entry else ""
-
-            with st.container(border=True):
-                header_cols = st.columns([6, 1])
-                header_cols[0].markdown(f"**#{number}**")
-                with header_cols[1]:
-                    if st.button("🗑", key=f"delete_{st.session_state.quarter}_{number}"):
-                        delete_possession(active_game, st.session_state.quarter, number)
-                        current_rows = get_rows_for_quarter(st.session_state.quarter)
-                        st.session_state.rows_by_quarter[str(st.session_state.quarter)] = max(1, current_rows - 1)
-                        st.rerun()
-
-                field_cols = st.columns([1, 1, 1, 1.1, 1.2, 3])
-                with field_cols[0]:
-                    paint_index = None
-                    if paint_touch is True:
-                        paint_index = 1
-                    elif paint_touch is False:
-                        paint_index = 0
-                    paint_choice = st.radio(
-                        "Paint Touch (0/1)",
-                        [0, 1],
-                        horizontal=True,
-                        index=paint_index,
-                        key=f"paint_{st.session_state.quarter}_{number}",
-                    )
-                    if paint_choice is not None and paint_choice != (
-                        1 if paint_touch else 0 if paint_touch is False else None
-                    ):
-                        update_possession(
-                            active_game,
-                            st.session_state.quarter,
-                            number,
-                            {"paint_touch": bool(paint_choice)},
-                        )
-
-                with field_cols[1]:
-                    transition_index = None
-                    if transition is True:
-                        transition_index = 1
-                    elif transition is False:
-                        transition_index = 0
-                    transition_choice = st.radio(
-                        "Trans (0/1)",
-                        [0, 1],
-                        horizontal=True,
-                        index=transition_index,
-                        key=f"transition_{st.session_state.quarter}_{number}",
-                    )
-                    if transition_choice is not None and transition_choice != (
-                        1 if transition else 0 if transition is False else None
-                    ):
-                        update_possession(
-                            active_game,
-                            st.session_state.quarter,
-                            number,
-                            {"transition": bool(transition_choice)},
-                        )
-
-                with field_cols[2]:
-                    points_index = None
-                    if points is not None:
-                        points_index = POINT_OPTIONS.index(points)
-                    points_choice = st.radio(
-                        "Points",
-                        POINT_OPTIONS,
-                        horizontal=True,
-                        index=points_index,
-                        key=f"points_{st.session_state.quarter}_{number}",
-                    )
-                    if points_choice is not None and points_choice != points:
-                        update_possession(
-                            active_game,
-                            st.session_state.quarter,
-                            number,
-                            {"points": points_choice},
-                        )
-
-                with field_cols[3]:
-                    defense_options = ["Man", "Zone"]
-                    defense_index = None
-                    if defense and defense.lower() in ("man", "zone"):
-                        defense_index = 0 if defense.lower() == "man" else 1
-                    defense_choice = st.radio(
-                        "Def",
-                        defense_options,
-                        horizontal=True,
-                        index=defense_index,
-                        key=f"defense_{st.session_state.quarter}_{number}",
-                    )
-                    if defense_choice:
-                        defense_value = defense_choice.lower()
-                        if defense_value != (defense or "").lower():
-                            update_possession(
-                                active_game,
-                                st.session_state.quarter,
-                                number,
-                                {"defense": defense_value},
-                            )
-
-                with field_cols[4]:
-                    shot_options = ["Good", "Bad"]
-                    shot_index = None
-                    if shot_quality and shot_quality.lower() in ("good", "bad"):
-                        shot_index = 0 if shot_quality.lower() == "good" else 1
-                    shot_choice = st.radio(
-                        "Shot Q",
-                        shot_options,
-                        horizontal=True,
-                        index=shot_index,
-                        key=f"shot_quality_{st.session_state.quarter}_{number}",
-                    )
-                    if shot_choice:
-                        shot_value = shot_choice.lower()
-                        if shot_value != (shot_quality or "").lower():
-                            update_possession(
-                                active_game,
-                                st.session_state.quarter,
-                                number,
-                                {"shot_quality": shot_value},
-                            )
-
-                with field_cols[5]:
-                    outcome_labels = [item["label"] for item in OUTCOMES]
-                    outcome_values = [item["value"] for item in OUTCOMES]
-                    outcome_index = None
-                    if outcome in outcome_values:
-                        outcome_index = outcome_values.index(outcome)
-                    outcome_choice = st.radio(
-                        "Outcome",
-                        outcome_labels,
-                        horizontal=True,
-                        index=outcome_index,
-                        key=f"outcome_{st.session_state.quarter}_{number}",
-                    )
-                    if outcome_choice and outcome_choice != "":
-                        selected_value = OUTCOMES[outcome_labels.index(outcome_choice)]["value"]
-                        if selected_value != outcome:
-                            update_possession(
-                                active_game,
-                                st.session_state.quarter,
-                                number,
-                                {"outcome": selected_value},
-                            )
-
-        if st.button("Add possession row", key=f"add_possession_{st.session_state.quarter}"):
-            current_rows = get_rows_for_quarter(st.session_state.quarter)
-            st.session_state.rows_by_quarter[str(st.session_state.quarter)] = current_rows + 1
-            st.rerun()
-
-        if active_game.get("possessions"):
-            export_rows = [
-                [
-                    p.get("number"),
-                    p.get("quarter"),
-                    "yes" if p.get("paint_touch") else "no",
-                    "yes" if p.get("transition") else "no",
-                    p.get("points") if p.get("points") is not None else "",
-                    p.get("defense") or "",
-                    p.get("shot_quality") or "",
-                    p.get("outcome") or "",
-                ]
-                for p in sorted(active_game.get("possessions", []), key=lambda x: (x["quarter"], x["number"]))
-            ]
-            export_df = pd.DataFrame(
-                export_rows,
-                columns=[
-                    "possession_number",
-                    "quarter",
-                    "paint_touch",
-                    "transition",
-                    "points",
-                    "defense",
-                    "shot_quality",
-                    "outcome",
-                ],
-            )
-            export_col, sync_col = st.columns([1, 1])
-            with export_col:
-                st.download_button(
-                    "Export CSV",
-                    export_df.to_csv(index=False),
-                    file_name=f"{active_game.get('name','game')}_{active_game.get('date')}.csv",
-                    mime="text/csv",
-                )
-            with sync_col:
-                if st.button("Sync to DB"):
-                    engine = get_engine()
-                    if not engine:
-                        st.error("DATABASE_URL is not set.")
-                    else:
-                        try:
-                            init_db(engine)
-                            synced = sync_game(engine, active_game)
-                            st.success(f"Synced {synced} possessions.")
-                        except SQLAlchemyError as exc:
-                            st.error(f"Sync failed: {exc}")
+        render_possession_grid()
 
     with analytics_col:
         render_analytics(active_game, st.session_state.quarter, None)
